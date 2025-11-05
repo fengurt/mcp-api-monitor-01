@@ -8,8 +8,49 @@ const STORAGE_KEYS = {
     users: 'api_monitor_users',
     currentUser: 'api_monitor_current_user',
     apis: 'api_monitor_apis',
-    models: 'api_monitor_models'
+    models: 'api_monitor_models',
+    defaultModels: 'api_monitor_default_models'
 };
+
+// Default AI Models (available to all users)
+const DEFAULT_AI_MODELS = [
+    {
+        id: 'default-kimik2',
+        name: 'kimik2',
+        type: 'custom',
+        capability: 'text_generc',
+        endpoint: 'https://api.example.com/v1/chat/completions',
+        apiKey: 'sk-xa38DwjXXXXXXXXXXXXXXXXXXXX',
+        modelName: 'kimi-k2-090',
+        context: 256000,
+        isDefault: true,
+        isAdminOnly: false
+    },
+    {
+        id: 'default-vanahom-a',
+        name: 'vanahom-a',
+        type: 'custom',
+        capability: 'text_generc',
+        endpoint: 'https://one.example.com/v1/chat/completions',
+        apiKey: 'sk-5oIl4H7]XXXXXXXXXXXXXXXXXXXX',
+        modelName: 'claude-opu',
+        context: 2000000,
+        isDefault: true,
+        isAdminOnly: false
+    },
+    {
+        id: 'default-apuch-hub',
+        name: 'apuch-hub',
+        type: 'custom',
+        capability: 'text_generc',
+        endpoint: 'https://hk-api.example.com/v1/chat/completions',
+        apiKey: 'sk-BsZygfMXXXXXXXXXXXXXXXXXXXX',
+        modelName: 'deepseek-v3',
+        context: 4096,
+        isDefault: true,
+        isAdminOnly: false
+    }
+];
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
@@ -23,10 +64,44 @@ function checkAuth() {
     const userStr = localStorage.getItem(STORAGE_KEYS.currentUser);
     if (userStr) {
         currentUser = JSON.parse(userStr);
+        // Initialize default models if not exists
+        initializeDefaultModels();
         showApp();
     } else {
         showAuth();
     }
+}
+
+// Initialize Default Models
+function initializeDefaultModels() {
+    const stored = localStorage.getItem(STORAGE_KEYS.defaultModels);
+    if (!stored) {
+        localStorage.setItem(STORAGE_KEYS.defaultModels, JSON.stringify(DEFAULT_AI_MODELS));
+    }
+}
+
+// Check if user is admin
+function isAdmin() {
+    return currentUser && currentUser.role === 'admin';
+}
+
+// Get all models (default + user's custom models)
+function getAllModels() {
+    const defaultModels = JSON.parse(localStorage.getItem(STORAGE_KEYS.defaultModels) || '[]');
+    return [...defaultModels, ...models];
+}
+
+// Mask API key (show only first few chars)
+function maskApiKey(key, showFull = false) {
+    if (!key) return 'Not set';
+    if (showFull || isAdmin()) {
+        return key;
+    }
+    // Show first 8 chars and mask the rest
+    if (key.length > 8) {
+        return key.substring(0, 8) + '•'.repeat(Math.min(key.length - 8, 20));
+    }
+    return '•'.repeat(key.length);
 }
 
 // Show Authentication Screen
@@ -40,7 +115,16 @@ function showApp() {
     document.getElementById('authScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = 'block';
     if (currentUser) {
-        document.getElementById('userEmail').textContent = currentUser.email;
+        const userInfo = currentUser.email;
+        if (isAdmin()) {
+            document.getElementById('userEmail').textContent = `${userInfo} (Admin)`;
+            document.getElementById('userEmail').style.color = 'var(--primary-color)';
+            document.getElementById('adminBadge').style.display = 'inline-block';
+        } else {
+            document.getElementById('userEmail').textContent = userInfo;
+            document.getElementById('userEmail').style.color = '';
+            document.getElementById('adminBadge').style.display = 'none';
+        }
     }
     renderDashboard();
     renderModels();
@@ -115,8 +199,13 @@ function handleLogin(e) {
     const user = users.find(u => u.email === email && u.password === password);
     
     if (user) {
-        currentUser = { email: user.email, name: user.name };
+        currentUser = { 
+            email: user.email, 
+            name: user.name, 
+            role: user.role || 'user' 
+        };
         localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
+        initializeDefaultModels();
         showApp();
     } else {
         showAuthError('Invalid email or password');
@@ -137,11 +226,18 @@ function handleRegister(e) {
         return;
     }
     
-    users.push({ name, email, password });
+    // First user becomes admin, others are regular users
+    const isFirstUser = users.length === 0;
+    const role = isFirstUser ? 'admin' : 'user';
+    
+    users.push({ name, email, password, role });
     localStorage.setItem(STORAGE_KEYS.users, JSON.stringify(users));
     
-    currentUser = { email, name };
+    currentUser = { email, name, role };
     localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
+    
+    // Initialize default models for new user
+    initializeDefaultModels();
     showApp();
 }
 
@@ -332,7 +428,8 @@ function renderDashboard() {
     // Update stats
     document.getElementById('totalApis').textContent = apis.length;
     document.getElementById('activeApis').textContent = apis.filter(a => a.status === 'active').length;
-    document.getElementById('totalModels').textContent = models.length;
+    const allModels = getAllModels();
+    document.getElementById('totalModels').textContent = allModels.length;
     
     // Render API cards
     const container = document.getElementById('apisList');
@@ -501,32 +598,45 @@ async function testApi(apiId) {
 // Render Models
 function renderModels() {
     const tbody = document.getElementById('modelsTableBody');
+    const allModels = getAllModels();
     
-    if (models.length === 0) {
+    if (allModels.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
-                    No AI models added yet. Click "Add AI Model" to get started.
+                    No AI models available.
                 </td>
             </tr>
         `;
         return;
     }
     
-    tbody.innerHTML = models.map(model => `
+    tbody.innerHTML = allModels.map(model => {
+        const isDefault = model.isDefault || false;
+        const maskedKey = maskApiKey(model.apiKey, false);
+        const canDelete = !isDefault && (isAdmin() || !model.isAdminOnly);
+        
+        return `
         <tr>
-            <td><strong>${model.name}</strong></td>
+            <td>
+                <strong>${model.name}</strong>
+                ${isDefault ? '<span class="api-badge" style="margin-left: 0.5rem; background: #dbeafe; color: #1e40af;">Default</span>' : ''}
+            </td>
             <td>${model.type}</td>
             <td>${model.capability}</td>
-            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${model.endpoint}</td>
-            <td class="api-key-cell">${model.apiKey.substring(0, 15)}...</td>
+            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${model.endpoint}">${model.endpoint}</td>
+            <td class="api-key-cell" title="${isAdmin() ? model.apiKey : 'Admin only'}">
+                ${maskedKey}
+                ${!isAdmin() ? '<span style="color: var(--text-secondary); font-size: 0.75rem; margin-left: 0.5rem;">🔒</span>' : ''}
+            </td>
             <td>${model.modelName}</td>
             <td>${model.context.toLocaleString()}</td>
             <td>
-                <button class="btn btn-small btn-danger" onclick="deleteModel('${model.id}')">Delete</button>
+                ${canDelete ? `<button class="btn btn-small btn-danger" onclick="deleteModel('${model.id}')">Delete</button>` : '<span style="color: var(--text-secondary); font-size: 0.85rem;">Protected</span>'}
             </td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // Handle Add Model
@@ -556,6 +666,23 @@ function handleAddModel(e) {
 
 // Delete Model
 function deleteModel(modelId) {
+    const allModels = getAllModels();
+    const model = allModels.find(m => m.id === modelId);
+    
+    if (!model) return;
+    
+    // Prevent deleting default models
+    if (model.isDefault) {
+        alert('Default models cannot be deleted. They are available to all users.');
+        return;
+    }
+    
+    // Only admin can delete admin-only models
+    if (model.isAdminOnly && !isAdmin()) {
+        alert('Only administrators can delete this model.');
+        return;
+    }
+    
     if (confirm('Are you sure you want to delete this model?')) {
         models = models.filter(m => m.id !== modelId);
         saveData();
