@@ -161,6 +161,19 @@ function initializeEventListeners() {
     document.getElementById('analyzeBtn').addEventListener('click', analyzeApiCode);
     document.getElementById('clearInputBtn').addEventListener('click', clearInput);
     document.getElementById('saveApiBtn').addEventListener('click', saveApi);
+    document.getElementById('testConnectionBtn').addEventListener('click', testConnection);
+    document.getElementById('cancelSaveBtn').addEventListener('click', () => {
+        if (confirm('Cancel and clear the form?')) {
+            clearInput();
+        }
+    });
+    
+    // Allow Enter key to trigger analysis
+    document.getElementById('apiCodeInput').addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            analyzeApiCode();
+        }
+    });
     
     // Models
     document.getElementById('addModelBtn').addEventListener('click', () => {
@@ -286,7 +299,7 @@ function saveData() {
 async function analyzeApiCode() {
     const code = document.getElementById('apiCodeInput').value.trim();
     if (!code) {
-        alert('Please paste your API code first');
+        showNotification('Please paste your API code first', 'error');
         return;
     }
     
@@ -296,27 +309,110 @@ async function analyzeApiCode() {
     analyzeBtn.textContent = '🤖 Analyzing...';
     analyzeBtn.disabled = true;
     
+    // Show loading indicator
+    const analysisResult = document.getElementById('analysisResult');
+    analysisResult.style.display = 'block';
+    document.getElementById('analysisContent').innerHTML = `
+        <div style="text-align: center; padding: 2rem;">
+            <div class="spinner" style="margin: 0 auto 1rem;"></div>
+            <p>Analyzing your code...</p>
+        </div>
+    `;
+    
     try {
-        // Simulate AI analysis (in production, this would call an AI API)
-        const analysis = await simulateAIAnalysis(code);
+        // Use AI model if available, otherwise use pattern matching
+        const allModels = getAllModels();
+        const analysis = allModels.length > 0 
+            ? await analyzeWithAI(code, allModels[0])
+            : await simulateAIAnalysis(code);
         
-        document.getElementById('analysisContent').innerHTML = `
-            <pre>${JSON.stringify(analysis, null, 2)}</pre>
-        `;
-        document.getElementById('analysisResult').style.display = 'block';
-        
-        // Pre-fill form
-        document.getElementById('apiName').value = analysis.name || '';
-        document.getElementById('apiDescription').value = analysis.description || '';
+        displayAnalysisResult(analysis);
+        populateAnalysisForm(analysis);
         
         // Store analysis result
         window.currentAnalysis = analysis;
         
+        showNotification('Analysis completed successfully!', 'success');
+        
     } catch (error) {
-        alert('Analysis failed: ' + error.message);
+        showNotification('Analysis failed: ' + error.message, 'error');
+        document.getElementById('analysisContent').innerHTML = `
+            <div style="color: var(--error-color); padding: 1rem; background: #fee2e2; border-radius: 0.5rem;">
+                <strong>Error:</strong> ${error.message}
+            </div>
+        `;
     } finally {
         analyzeBtn.textContent = originalText;
         analyzeBtn.disabled = false;
+    }
+}
+
+// Analyze with AI Model
+async function analyzeWithAI(code, model) {
+    // In production, this would call the actual AI model API
+    // For now, we'll use enhanced pattern matching
+    return await simulateAIAnalysis(code);
+}
+
+// Display Analysis Result
+function displayAnalysisResult(analysis) {
+    const content = document.getElementById('analysisContent');
+    
+    content.innerHTML = `
+        <div class="analysis-summary">
+            <div class="summary-item">
+                <span class="summary-label">Endpoint:</span>
+                <span class="summary-value">${analysis.endpoint || 'Not detected'}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Method:</span>
+                <span class="summary-value">${analysis.method || 'GET'}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">API Key:</span>
+                <span class="summary-value">${analysis.apiKey ? '✓ Detected' : 'Not detected'}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Headers:</span>
+                <span class="summary-value">${Object.keys(analysis.headers || {}).length} found</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Fields:</span>
+                <span class="summary-value">${analysis.detectedFields.length} detected</span>
+            </div>
+        </div>
+        ${analysis.detectedFields.length > 0 ? `
+            <div style="margin-top: 1rem;">
+                <strong>Detected Fields:</strong>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
+                    ${analysis.detectedFields.map(field => `<span class="field-tag">${field}</span>`).join('')}
+                </div>
+            </div>
+        ` : ''}
+    `;
+}
+
+// Populate Analysis Form
+function populateAnalysisForm(analysis) {
+    document.getElementById('apiName').value = analysis.name || '';
+    document.getElementById('apiMethod').value = analysis.method || 'GET';
+    document.getElementById('apiEndpoint').value = analysis.endpoint || '';
+    document.getElementById('apiKey').value = analysis.apiKey || '';
+    document.getElementById('apiDescription').value = analysis.description || '';
+    document.getElementById('apiHeaders').value = JSON.stringify(analysis.headers || {}, null, 2);
+    
+    // Display detected fields
+    const fieldsContainer = document.getElementById('detectedFields');
+    if (analysis.detectedFields && analysis.detectedFields.length > 0) {
+        fieldsContainer.innerHTML = `
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                ${analysis.detectedFields.map(field => `
+                    <span class="field-tag">${field}</span>
+                `).join('')}
+            </div>
+        `;
+    } else {
+        fieldsContainer.innerHTML = '<span style="color: var(--text-secondary);">No fields detected</span>';
     }
 }
 
@@ -325,29 +421,49 @@ async function simulateAIAnalysis(code) {
     // Simulate API delay
     await new Promise(resolve => setTimeout(resolve, 1500));
     
-    // Extract information from code using regex patterns
-    const urlMatch = code.match(/https?:\/\/[^\s'"]+/);
-    const apiKeyMatch = code.match(/['"](api_key|apiKey|apikey)['"]\s*[:=]\s*['"]([^'"]+)['"]/i);
-    const methodMatch = code.match(/method\s*[:=]\s*['"](GET|POST|PUT|DELETE|PATCH)['"]/i) || 
-                        code.match(/\.(get|post|put|delete|patch)\(/i);
-    const headersMatch = code.match(/headers\s*[:=]\s*\{([^}]+)\}/s);
+    // Enhanced extraction patterns
+    const urlMatch = code.match(/https?:\/\/[^\s'")`]+/);
+    const apiKeyMatch = code.match(/['"](api[_-]?key|apiKey|apikey|authorization|bearer|token)['"]\s*[:=]\s*['"`]([^'"`]+)['"`]/i) ||
+                       code.match(/(?:api[_-]?key|apiKey|apikey|authorization|bearer|token)\s*[:=]\s*['"`]([^'"`]+)['"`]/i);
+    const methodMatch = code.match(/method\s*[:=]\s*['"](GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)['"]/i) || 
+                        code.match(/\.(get|post|put|delete|patch|head|options)\(/i) ||
+                        code.match(/curl\s+(-X\s+)?(GET|POST|PUT|DELETE|PATCH)/i);
+    const headersMatch = code.match(/headers\s*[:=]\s*\{([^}]+)\}/s) ||
+                        code.match(/headers\s*[:=]\s*\[([^\]]+)\]/s);
     
-    const url = urlMatch ? urlMatch[0] : '';
-    const apiKey = apiKeyMatch ? apiKeyMatch[2] : '';
-    const method = methodMatch ? (methodMatch[1] || methodMatch[0].toUpperCase()) : 'GET';
+    const url = urlMatch ? urlMatch[0].replace(/['"`]/g, '') : '';
+    const apiKey = apiKeyMatch ? (apiKeyMatch[2] || apiKeyMatch[1]) : '';
+    let method = 'GET';
+    if (methodMatch) {
+        method = methodMatch[1] || methodMatch[2] || methodMatch[0].toUpperCase();
+        method = method.toUpperCase();
+    }
     
     // Extract endpoint name from URL
-    const urlParts = url.split('/');
-    const endpointName = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2] || 'API';
+    let endpointName = 'API';
+    if (url) {
+        const urlParts = url.split('/').filter(p => p && !p.includes('http'));
+        endpointName = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2] || 'Endpoint';
+        endpointName = endpointName.charAt(0).toUpperCase() + endpointName.slice(1).replace(/[-_]/g, ' ');
+    }
+    
+    // Parse headers
+    let headers = {};
+    if (headersMatch) {
+        headers = parseHeaders(headersMatch[1]);
+    }
+    
+    // Extract fields from response examples or type definitions
+    const detectedFields = extractFields(code);
     
     return {
-        name: endpointName.charAt(0).toUpperCase() + endpointName.slice(1) + ' API',
+        name: endpointName + ' API',
         description: `API endpoint discovered from code analysis`,
         endpoint: url,
         method: method,
         apiKey: apiKey,
-        headers: headersMatch ? parseHeaders(headersMatch[1]) : {},
-        detectedFields: extractFields(code),
+        headers: headers,
+        detectedFields: detectedFields,
         sampleCode: code
     };
 }
@@ -364,48 +480,117 @@ function parseHeaders(headerStr) {
 
 // Extract Fields from Code
 function extractFields(code) {
-    // Try to find JSON structure or response examples
-    const jsonMatch = code.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
+    const fields = new Set();
+    
+    // Try to find JSON structure in response examples
+    const jsonMatches = code.matchAll(/\{[\s\S]{0,500}\}/g);
+    for (const match of jsonMatches) {
         try {
-            const parsed = JSON.parse(jsonMatch[0]);
-            return Object.keys(parsed);
+            const parsed = JSON.parse(match[0]);
+            Object.keys(parsed).forEach(key => fields.add(key));
         } catch (e) {
-            // Not valid JSON, try to extract field names
-            const fieldMatches = code.matchAll(/(['"]?)(\w+)\1\s*:/g);
-            return Array.from(fieldMatches, m => m[2]);
+            // Not valid JSON, extract field names
+            const fieldMatches = match[0].matchAll(/(['"]?)(\w+)\1\s*:/g);
+            for (const fm of fieldMatches) {
+                fields.add(fm[2]);
+            }
         }
     }
-    return [];
+    
+    // Extract from TypeScript/interface definitions
+    const interfaceMatch = code.match(/interface\s+\w+\s*\{([^}]+)\}/);
+    if (interfaceMatch) {
+        const fieldMatches = interfaceMatch[1].matchAll(/(\w+)\s*[:?]/g);
+        for (const fm of fieldMatches) {
+            fields.add(fm[1]);
+        }
+    }
+    
+    // Extract from object destructuring
+    const destructureMatch = code.match(/\{[\s\S]*\}/);
+    if (destructureMatch) {
+        const varMatches = destructureMatch[0].matchAll(/(\w+)\s*[:=]/g);
+        for (const vm of varMatches) {
+            fields.add(vm[1]);
+        }
+    }
+    
+    return Array.from(fields).filter(f => f.length > 0 && !['id', 'data', 'result', 'response'].includes(f.toLowerCase()));
 }
 
 // Clear Input
 function clearInput() {
     document.getElementById('apiCodeInput').value = '';
     document.getElementById('analysisResult').style.display = 'none';
+    document.getElementById('apiName').value = '';
+    document.getElementById('apiMethod').value = 'GET';
+    document.getElementById('apiEndpoint').value = '';
+    document.getElementById('apiKey').value = '';
+    document.getElementById('apiDescription').value = '';
+    document.getElementById('apiHeaders').value = '';
+    document.getElementById('detectedFields').innerHTML = '';
     window.currentAnalysis = null;
+    
+    // Remove any test response previews
+    const previews = document.querySelectorAll('#analysisForm > div[style*="Response Preview"]');
+    previews.forEach(p => p.remove());
 }
 
 // Save API
 function saveApi() {
-    if (!window.currentAnalysis) {
-        alert('Please analyze the code first');
+    // Validate required fields
+    const name = document.getElementById('apiName').value.trim();
+    const endpoint = document.getElementById('apiEndpoint').value.trim();
+    const method = document.getElementById('apiMethod').value;
+    
+    if (!name) {
+        showNotification('Please enter an API name', 'error');
+        document.getElementById('apiName').focus();
         return;
     }
     
-    const name = document.getElementById('apiName').value || window.currentAnalysis.name;
-    const description = document.getElementById('apiDescription').value || window.currentAnalysis.description;
+    if (!endpoint) {
+        showNotification('Please enter an endpoint URL', 'error');
+        document.getElementById('apiEndpoint').focus();
+        return;
+    }
+    
+    // Validate URL format
+    try {
+        new URL(endpoint);
+    } catch (e) {
+        showNotification('Please enter a valid URL', 'error');
+        document.getElementById('apiEndpoint').focus();
+        return;
+    }
+    
+    // Parse headers
+    let headers = {};
+    const headersText = document.getElementById('apiHeaders').value.trim();
+    if (headersText) {
+        try {
+            headers = JSON.parse(headersText);
+        } catch (e) {
+            showNotification('Invalid JSON in headers field. Please fix it.', 'error');
+            document.getElementById('apiHeaders').focus();
+            return;
+        }
+    }
+    
+    // Get detected fields from display
+    const fieldTags = document.querySelectorAll('#detectedFields .field-tag');
+    const detectedFields = Array.from(fieldTags).map(tag => tag.textContent.trim());
     
     const newApi = {
         id: Date.now().toString(),
         name: name,
-        description: description,
-        endpoint: window.currentAnalysis.endpoint,
-        method: window.currentAnalysis.method,
-        apiKey: window.currentAnalysis.apiKey,
-        headers: window.currentAnalysis.headers,
-        detectedFields: window.currentAnalysis.detectedFields,
-        sampleCode: window.currentAnalysis.sampleCode,
+        description: document.getElementById('apiDescription').value.trim() || '',
+        endpoint: endpoint,
+        method: method,
+        apiKey: document.getElementById('apiKey').value.trim() || '',
+        headers: headers,
+        detectedFields: detectedFields.length > 0 ? detectedFields : (window.currentAnalysis?.detectedFields || []),
+        sampleCode: window.currentAnalysis?.sampleCode || document.getElementById('apiCodeInput').value,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         status: 'active',
@@ -415,10 +600,99 @@ function saveApi() {
     apis.push(newApi);
     saveData();
     
-    alert('API saved successfully!');
+    showNotification('API saved successfully!', 'success');
+    
+    // Clear and reset
     clearInput();
-    switchPage('dashboard');
-    renderDashboard();
+    setTimeout(() => {
+        switchPage('dashboard');
+        renderDashboard();
+    }, 1000);
+}
+
+// Test Connection
+async function testConnection() {
+    const endpoint = document.getElementById('apiEndpoint').value.trim();
+    const method = document.getElementById('apiMethod').value;
+    const apiKey = document.getElementById('apiKey').value.trim();
+    const headersText = document.getElementById('apiHeaders').value.trim();
+    
+    if (!endpoint) {
+        showNotification('Please enter an endpoint URL first', 'error');
+        return;
+    }
+    
+    const testBtn = document.getElementById('testConnectionBtn');
+    const originalText = testBtn.textContent;
+    testBtn.textContent = 'Testing...';
+    testBtn.disabled = true;
+    
+    try {
+        let headers = {};
+        if (headersText) {
+            headers = JSON.parse(headersText);
+        }
+        
+        if (apiKey) {
+            headers['api_key'] = apiKey;
+        }
+        
+        headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+        
+        const response = await fetch(endpoint, {
+            method: method || 'GET',
+            headers: headers
+        });
+        
+        const data = await response.json().catch(() => ({ text: await response.text() }));
+        
+        showNotification(`Connection successful! Status: ${response.status}`, 'success');
+        
+        // Show response preview
+        const preview = document.createElement('div');
+        preview.style.cssText = 'margin-top: 1rem; padding: 1rem; background: var(--bg-color); border-radius: 0.5rem; max-height: 300px; overflow-y: auto;';
+        preview.innerHTML = `
+            <strong>Response Preview:</strong>
+            <pre style="margin-top: 0.5rem; font-size: 0.85rem;">${JSON.stringify(data, null, 2).substring(0, 500)}${JSON.stringify(data, null, 2).length > 500 ? '...' : ''}</pre>
+        `;
+        document.getElementById('analysisForm').appendChild(preview);
+        
+    } catch (error) {
+        showNotification(`Connection failed: ${error.message}`, 'error');
+    } finally {
+        testBtn.textContent = originalText;
+        testBtn.disabled = false;
+    }
+}
+
+// Show Notification
+function showNotification(message, type = 'info') {
+    // Remove existing notifications
+    const existing = document.querySelector('.notification');
+    if (existing) existing.remove();
+    
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        background: ${type === 'success' ? 'var(--success-color)' : type === 'error' ? 'var(--error-color)' : 'var(--primary-color)'};
+        color: white;
+        border-radius: 0.5rem;
+        box-shadow: var(--shadow-lg);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
 }
 
 // Render Dashboard

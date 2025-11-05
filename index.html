@@ -124,18 +124,64 @@
                 </div>
 
                 <div id="analysisResult" class="analysis-result" style="display: none;">
-                    <h3>AI Analysis Result</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3>AI Analysis Result</h3>
+                        <button id="editAnalysisBtn" class="btn btn-small btn-secondary">✏️ Edit</button>
+                    </div>
+                    
                     <div id="analysisContent"></div>
-                    <div class="form-section">
-                        <div class="form-group">
-                            <label>API Name</label>
-                            <input type="text" id="apiName" placeholder="e.g., Recipe API">
+                    
+                    <div id="analysisForm" class="form-section">
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 1;">
+                                <label>API Name *</label>
+                                <input type="text" id="apiName" required placeholder="e.g., Recipe API">
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label>HTTP Method *</label>
+                                <select id="apiMethod" required>
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                    <option value="PATCH">PATCH</option>
+                                </select>
+                            </div>
                         </div>
+                        
+                        <div class="form-group">
+                            <label>Endpoint URL *</label>
+                            <input type="url" id="apiEndpoint" required placeholder="https://api.example.com/endpoint">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>API Key</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="apiKey" placeholder="sk-... or leave empty" style="flex: 1;">
+                                <button type="button" id="testConnectionBtn" class="btn btn-small">🔌 Test Connection</button>
+                            </div>
+                        </div>
+                        
                         <div class="form-group">
                             <label>Description</label>
-                            <textarea id="apiDescription" rows="3" placeholder="Optional description"></textarea>
+                            <textarea id="apiDescription" rows="3" placeholder="Optional description of what this API does"></textarea>
                         </div>
-                        <button id="saveApiBtn" class="btn btn-primary btn-block">💾 Save API/MCP</button>
+                        
+                        <div class="form-group">
+                            <label>Additional Headers (JSON)</label>
+                            <textarea id="apiHeaders" rows="4" placeholder='{"Content-Type": "application/json", "Authorization": "Bearer token"}'></textarea>
+                            <small style="color: var(--text-secondary);">Enter headers as JSON object</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Detected Fields</label>
+                            <div id="detectedFields" class="fields-display"></div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button id="saveApiBtn" class="btn btn-primary">💾 Save API/MCP</button>
+                            <button type="button" id="cancelSaveBtn" class="btn btn-secondary">Cancel</button>
+                        </div>
                     </div>
                 </div>
             </div>
